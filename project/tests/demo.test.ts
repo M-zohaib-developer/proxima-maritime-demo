@@ -224,7 +224,8 @@ test('full scenario: client update, owner isolation, FDA reconciliation, reset',
 
   // portal before the owner update: schedule live, revised estimate pending approval
   let portal = getOwnerPortal(s, DEMO_OWNER_ID)!;
-  assert.equal(portal.calls.length, 1);
+  assert.equal(portal.calls.length, 2);                       // Nile Trader + Delta Kestrel
+  assert.equal(portal.calls[0].vesselName, 'MV Nile Trader');   // newest call first
   assert.equal(portal.calls[0].schedule.etb, '2026-11-21T12:00:00');
   assert.equal(portal.calls[0].approvedPda, 168267.25);
   assert.equal(portal.calls[0].estimatePending, true);
@@ -243,7 +244,7 @@ test('full scenario: client update, owner isolation, FDA reconciliation, reset',
 
   s = reducer(s, { type: 'CREATE_UPDATE_DRAFT', update: { id: 'u1', portCallId: pcId, ownerId: DEMO_OWNER_ID, vesselName: pc.vesselName, status: 'Draft', subject: draft.subject, body: draft.body, createdAt: AT, createdBy: 'Mona Saleh', edited: false, snapshot: draft.snapshot, inReplyToEmailId: 'em-status' } });
   // drafts never reach the portal
-  assert.equal(getOwnerPortal(s, DEMO_OWNER_ID)!.calls[0].updates.length, 0);
+  assert.equal(getOwnerPortal(s, DEMO_OWNER_ID)!.calls[0].updates.length, 0);   // Nile Trader draft not visible
   s = reducer(s, { type: 'EDIT_UPDATE', id: 'u1', subject: draft.subject, body: draft.body + '\nPS edited' });
   s = reducer(s, { type: 'SEND_UPDATE', id: 'u1', at: AT });
   assert.equal(s.emails.find(e => e.id === 'em-status')!.status, 'Processed');
@@ -389,4 +390,32 @@ test('documents: Nile Trader gets required docs on creation but no warning (ETA 
   assert.equal(c.hoursToEta, 50);
   assert.equal(c.triggered, false);
   assert.equal(s.warnings.filter(w => w.portCallId === pcId).length, 0);
+});
+
+test('client portal at reset: Thalassa sees MV Delta Kestrel with full read-only status; isolation holds', () => {
+  const s = buildInitialState();
+  const p = getOwnerPortal(s, DEMO_OWNER_ID)!;
+  assert.equal(p.calls.length, 1);
+  const c = p.calls[0];
+  assert.equal(c.vesselName, 'MV Delta Kestrel');
+  assert.equal(c.status, 'In Transit');
+  assert.equal(c.port, 'Port Said');
+  assert.equal(c.schedule.eta, '2026-11-17T22:00:00');
+  assert.equal(c.approvedPda, pdaTotal(s.pdas['pc-104']));
+  assert.equal(c.suez?.status, 'Confirmed');
+  assert.equal(c.updates.length, 1);
+  assert.match(c.updates[0].subject, /northbound Suez transit under way/);
+  assert.match(c.nextStep, /Northbound convoy under way/);
+  // relationships are consistent: call owner == vessel owner
+  for (const pc of s.portCalls) assert.equal(pc.ownerId, s.vessels.find(v => v.id === pc.vesselId)!.ownerId, pc.vesselName);
+  // no other owner sees Delta Kestrel; every owner still has at least one call
+  for (const o of s.companies.filter(x => x.kind === 'owner' && x.id !== DEMO_OWNER_ID)) {
+    const op = getOwnerPortal(s, o.id)!;
+    assert.ok(op.calls.length > 0, o.name);
+    assert.ok(op.calls.every(x => x.vesselName !== 'MV Delta Kestrel'), o.name);
+  }
+  // seeded update is properly approved + audited
+  const u = s.clientUpdates.find(x => x.id === 'upd-seed-kestrel')!;
+  assert.equal(u.status, 'Sent'); assert.equal(u.approvedBy, 'Youssef Adel');
+  assert.ok(s.activity.some(a => a.action === 'Client update approved' && a.portCallId === 'pc-104'));
 });

@@ -4,7 +4,7 @@ import { useDemoStore, type PageKey } from '@/lib/demoStore';
 import { activeWarnings, unackWarnings } from '@/lib/selectors';
 import { fmtTimestamp } from '@/lib/time';
 import Sidebar from '@/components/Sidebar';
-import { Avatar, SampleTag } from '@/components/ui';
+import { Avatar } from '@/components/ui';
 import { SeverityBadge } from '@/components/StatusBadge';
 
 const SIDEBAR_KEY = 'proxima-sidebar-collapsed';
@@ -175,7 +175,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </nav>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-2">
-            <SampleTag className="max-sm:px-1.5 max-sm:[&>svg]:hidden" />
             {crit > 0 && (
               <button onClick={() => navigate('operations')} className="badge h-7 px-2.5 bg-critical-light text-critical-dark border border-critical/25 hover:bg-critical/15 transition-colors animate-fade-in">
                 <AlertTriangle size={12} /> {crit} critical

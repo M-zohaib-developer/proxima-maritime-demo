@@ -55,6 +55,7 @@ export function getOwnerPortal(state: DemoState, ownerId: string): OwnerPortal |
 
   const calls = state.portCalls
     .filter(pc => pc.ownerId === ownerId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))   // newest call first
     .map((pc): OwnerCallView => {
       const vessel = state.vessels.find(v => v.id === pc.vesselId && v.ownerId === ownerId);
       const pda = state.pdas[pc.id];

@@ -4,13 +4,14 @@
 // fail the IMO check-digit test so they cannot belong to a real ship.
 // ─────────────────────────────────────────────────────────────────────────────
 import type {
-  ActivityEvent, Company, DemoEmail, DemoState, HistoricalCall, PDA,
+  ActivityEvent, ClientUpdate, Company, DemoEmail, DemoState, HistoricalCall, PDA,
   PortCall, Staff, Task, Vessel, Warning,
 } from '@/types';
-import { draftPdaLines } from '@/services/pdaEngine';
+import { draftPdaLines, pdaTotal } from '@/services/pdaEngine';
+import { usd } from '@/lib/format';
 import { checkDocuments, documentWarning, requiredDocuments } from '@/services/documentRules';
 
-export const STATE_VERSION = 4;
+export const STATE_VERSION = 5;
 export const DEMO_VESSEL_ID = 'vsl-nile';
 export const DEMO_OWNER_ID = 'own-thalassa';
 export const SEED_TIME = '2026-11-18T06:00:00.000Z';
@@ -39,7 +40,7 @@ export const VESSELS: Vessel[] = [
   { id: 'vsl-saffron',  name: 'MV Saffron Meridian', imo: '9815906', type: 'Bulk Carrier',  flag: 'Cyprus',    gt: 31_100, nrt: 18_420, dwt: 56_400, loa: 190.0, built: 2016, scnt: 29_800, ownerId: 'own-levantia' },
   { id: 'vsl-corniche', name: 'MV Corniche Dawn',    imo: '9830164', type: 'Tanker',        flag: 'Marshall Is.', gt: 28_400, nrt: 13_200, dwt: 47_900, loa: 183.0, built: 2018, scnt: 27_100, ownerId: 'own-corniche' },
   { id: 'vsl-lotus',    name: 'MV Lotus Horizon',    imo: '9613188', type: 'Container',     flag: 'Singapore', gt: 25_600, nrt: 12_100, dwt: 32_000, loa: 196.4, built: 2012, scnt: 26_300, ownerId: 'own-meridian' },
-  { id: 'vsl-kestrel',  name: 'MV Delta Kestrel',    imo: '9609137', type: 'Bulk Carrier',  flag: 'Liberia',   gt: 29_870, nrt: 17_900, dwt: 52_000, loa: 189.8, built: 2013, scnt: 28_600, ownerId: 'own-levantia' },
+  { id: 'vsl-kestrel',  name: 'MV Delta Kestrel',    imo: '9609137', type: 'Bulk Carrier',  flag: 'Liberia',   gt: 29_870, nrt: 17_900, dwt: 52_000, loa: 189.8, built: 2013, scnt: 28_600, ownerId: DEMO_OWNER_ID },
   { id: 'vsl-qamar',    name: 'MV Qamar Voyager',    imo: '9909965', type: 'Tanker',        flag: 'Panama',    gt: 31_200, nrt: 14_700, dwt: 55_000, loa: 194.1, built: 2019, scnt: 29_900, ownerId: 'own-corniche' },
   { id: 'vsl-wren',     name: 'MV Pharos Wren',      imo: '9030829', type: 'General Cargo', flag: 'Antigua & Barbuda', gt: 9_850, nrt: 5_300, dwt: 12_800, loa: 139.5, built: 2010, scnt: 9_200, ownerId: 'own-meridian' },
 ];
@@ -72,7 +73,7 @@ export const PORT_CALLS: PortCall[] = [
   }),
   seedCall({
     id: 'pc-104', ref: 'PSD-26-0391', vesselId: 'vsl-kestrel', vesselName: 'MV Delta Kestrel', vesselType: 'Bulk Carrier',
-    ownerId: 'own-levantia', ownerName: 'Levantia Bulk Trading Ltd',
+    ownerId: DEMO_OWNER_ID, ownerName: 'Thalassa Bluewater Navigation S.A.',
     port: 'Port Said', purpose: 'Suez transit (northbound)', cargo: 'Soybeans', cargoQty: '48,000 MT', services: ['suez-transit'],
     eta: '2026-11-17T22:00:00', etb: '2026-11-18T03:00:00', etd: '2026-11-18T18:00:00',
     status: 'In Transit', nextStep: 'Northbound convoy under way — clear of canal approx. 18:00 LT.',
@@ -275,6 +276,8 @@ export const TASKS: Task[] = [
 const ACTIVITY: ActivityEvent[] = [
   { id: 'act-s6', timestamp: '2026-11-18T07:12:00.000Z', userId: 'system', user: 'System', action: 'Email received', category: 'email', entityLabel: 'MV Nile Trader', details: 'Nomination from Thalassa Bluewater Navigation S.A. received in the Alexandria agency inbox.' },
   { id: 'act-s5', timestamp: '2026-11-18T05:40:00.000Z', userId: 'st-layla', user: 'Layla Haddad', action: 'Task completed', category: 'task', portCallId: 'pc-102', entityLabel: 'MV Corniche Dawn', details: 'Confirm bunker barge slot — marked done.' },
+  { id: 'act-s4b', timestamp: '2026-11-18T03:12:00.000Z', userId: 'st-youssef', user: 'Youssef Adel', action: 'Client update sent (simulated)', category: 'client-update', portCallId: 'pc-104', entityLabel: 'MV Delta Kestrel', details: 'Recorded as sent to Nikos Petrakis (Thalassa Bluewater Navigation S.A.). No external email was sent. Now visible in the owner\'s portal.' },
+  { id: 'act-s4a', timestamp: '2026-11-18T03:12:00.000Z', userId: 'st-youssef', user: 'Youssef Adel', action: 'Client update approved', category: 'client-update', portCallId: 'pc-104', entityLabel: 'MV Delta Kestrel', details: '"MV Delta Kestrel — northbound Suez transit under way" approved by Youssef Adel.' },
   { id: 'act-s4', timestamp: '2026-11-18T03:05:00.000Z', userId: 'st-youssef', user: 'Youssef Adel', action: 'Transit started', category: 'transit', portCallId: 'pc-104', entityLabel: 'MV Delta Kestrel', details: 'Joined northbound convoy 18 Nov 03:00 LT.' },
   { id: 'act-s3', timestamp: '2026-11-17T15:20:00.000Z', userId: 'st-karim', user: 'Karim Fawzy', action: 'PDA approved', category: 'pda', portCallId: 'pc-101', entityLabel: 'MV Saffron Meridian', details: 'PDA approved by D/A Supervisor.' },
   { id: 'act-s2', timestamp: '2026-11-17T14:00:00.000Z', userId: 'st-tarek', user: 'Tarek Nabil', action: 'Status changed', category: 'port-call', portCallId: 'pc-101', entityLabel: 'MV Saffron Meridian', details: 'Vessel all fast Port Said.', changes: [{ field: 'Status', from: 'At Anchorage', to: 'At Berth' }] },
@@ -304,6 +307,30 @@ function seedPda(pcId: string, status: PDA['status']): PDA {
   };
 }
 
+// One approved & sent owner update for Thalassa's in-transit vessel, so the
+// owner portal has a "latest update" from reset (fictional).
+function seedKestrelUpdate(approvedPda: number): ClientUpdate {
+  const nextStep = 'Northbound convoy under way — clear of canal approx. 18:00 LT.';
+  return {
+    id: 'upd-seed-kestrel', portCallId: 'pc-104', ownerId: DEMO_OWNER_ID, vesselName: 'MV Delta Kestrel', status: 'Sent',
+    subject: 'MV Delta Kestrel — northbound Suez transit under way',
+    body: [
+      'Dear Nikos Petrakis,', '',
+      'MV Delta Kestrel joined the northbound convoy from the Suez waiting area at 03:00 LT today (our ref. PSD-26-0391).', '',
+      'SCHEDULE (local time)',
+      '- Convoy start: 18 Nov 2026 03:00 (as booked)',
+      '- Expected clear of canal: 18 Nov 2026 18:00', '',
+      'ESTIMATED COSTS (USD, estimate — final figures follow in the FDA)',
+      `- Approved PDA: ${usd(approvedPda)}`, '',
+      'NEXT STEP', nextStep, '',
+      'Kind regards,', 'Youssef Adel', 'Senior Suez Canal Operator, Proxima Ship Service',
+    ].join('\n'),
+    createdAt: '2026-11-18T03:10:00.000Z', createdBy: 'Youssef Adel', edited: false,
+    approvedBy: 'Youssef Adel', sentAt: '2026-11-18T03:12:00.000Z',
+    snapshot: { eta: '2026-11-17T22:00:00', etb: '2026-11-18T03:00:00', etd: '2026-11-18T18:00:00', approvedPda, transitStatus: 'Convoy 18 Nov 03:00 LT confirmed', nextStep },
+  };
+}
+
 export function buildInitialState(): DemoState {
   const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
   const portCalls = clone(PORT_CALLS).map(pc => {
@@ -319,6 +346,13 @@ export function buildInitialState(): DemoState {
     docWarnings.push({ ...w, id: `wrn-docs-${pc.id}`, triggeredAt: SEED_TIME, status: 'Open' });
     docEvents.push({ id: `act-docs-${pc.id}`, timestamp: SEED_TIME, userId: 'system', user: 'System', action: 'Warning raised', category: 'warning', portCallId: pc.id, entityLabel: pc.vesselName, details: `${w.title}. Rule: ${w.rule}.` });
   });
+  const pdas: DemoState['pdas'] = {
+    'pc-101': seedPda('pc-101', 'Approved'),
+    'pc-102': seedPda('pc-102', 'Sent'),
+    'pc-103': seedPda('pc-103', 'Draft'),
+    'pc-104': seedPda('pc-104', 'Approved'),
+    'pc-106': seedPda('pc-106', 'Approved'),
+  };
   return {
     version: STATE_VERSION,
     currentUserId: 'st-mona',
@@ -328,17 +362,11 @@ export function buildInitialState(): DemoState {
     portCalls,
     emails: clone(EMAILS),
     tasks: clone(TASKS),
-    pdas: {
-      'pc-101': seedPda('pc-101', 'Approved'),
-      'pc-102': seedPda('pc-102', 'Sent'),
-      'pc-103': seedPda('pc-103', 'Draft'),
-      'pc-104': seedPda('pc-104', 'Approved'),
-      'pc-106': seedPda('pc-106', 'Approved'),
-    },
+    pdas,
     fdas: {},
     historical: clone(HISTORICAL),
     warnings: docWarnings,
-    clientUpdates: [],
+    clientUpdates: [seedKestrelUpdate(pdaTotal(pdas['pc-104']))],
     activity: [...clone(ACTIVITY).filter(a => a.timestamp > SEED_TIME), ...docEvents, ...clone(ACTIVITY).filter(a => a.timestamp <= SEED_TIME)],
   };
 }
