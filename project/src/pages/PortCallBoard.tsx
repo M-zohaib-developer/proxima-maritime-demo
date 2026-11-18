@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Mail, Search, Ship, X } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, ClipboardList, Mail, Search, Ship, X } from 'lucide-react';
 import { useDemoStore } from '@/lib/demoStore';
 import { activeWarnings, openTasks, pdaStatusOf, pdaTotalOf } from '@/lib/selectors';
 import { EmptyState, PageHeader } from '@/components/ui';
 import { PDAStatusBadge, PortCallStatusBadge, TransitStatusBadge } from '@/components/StatusBadge';
 import { fmtLt, ltToMs } from '@/lib/time';
+import { checkDocuments, deadlineText, etaText } from '@/services/documentRules';
 import { usd } from '@/lib/format';
 import type { PortCall, PortCallStatus, PortName } from '@/types';
 
@@ -126,7 +127,17 @@ export default function PortCallBoard() {
                     <td className="td tabular whitespace-nowrap">{fmtLt(pc.eta)}</td>
                     <td className="td tabular whitespace-nowrap">{fmtLt(pc.etb)}{delayed && <span className="block text-2xs text-critical font-semibold">delayed</span>}</td>
                     <td className="td tabular whitespace-nowrap">{fmtLt(pc.etd)}</td>
-                    <td className="td"><PortCallStatusBadge status={pc.status} /></td>
+                    <td className="td">
+                      <PortCallStatusBadge status={pc.status} />
+                      {(() => {
+                        const dc = checkDocuments(pc);
+                        return dc?.triggered ? (
+                          <span className={`badge mt-1 flex w-fit ${dc.severity === 'critical' ? 'bg-critical-light text-critical-dark' : 'bg-warning-light text-warning-dark'}`} title={`Document deadline ${fmtLt(dc.deadline)} LT ${deadlineText(dc.hoursToDeadline)} · Vessel ETA ${fmtLt(pc.eta)} LT ${etaText(dc.hoursToEta)} · Missing: ${dc.missing.map(d => d.name).join(', ')}`}>
+                            <ClipboardList size={10} />{dc.missing.length} doc{dc.missing.length === 1 ? '' : 's'} overdue
+                          </span>
+                        ) : null;
+                      })()}
+                    </td>
                     <td className="td">
                       {pc.suez ? (
                         <div className="space-y-1"><p className="tabular text-xs whitespace-nowrap">{fmtLt(pc.suez.convoy)} <span className="text-slate">{pc.suez.direction === 'Southbound' ? 'SB' : 'NB'}</span></p><TransitStatusBadge status={pc.suez.status} /></div>

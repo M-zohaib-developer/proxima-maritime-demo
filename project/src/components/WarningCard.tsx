@@ -1,4 +1,5 @@
-import { Check, Mail, Navigation, ShieldAlert } from 'lucide-react';
+import { Check, ClipboardList, Mail, Navigation, ShieldAlert } from 'lucide-react';
+import { DocFollowUpButton } from '@/components/DocumentsCard';
 import { useDemoStore } from '@/lib/demoStore';
 import { useToast } from '@/components/Toast';
 import { SeverityBadge, WarningStatusBadge } from '@/components/StatusBadge';
@@ -67,13 +68,19 @@ export default function WarningCard({ w, showVessel = false }: { w: Warning; sho
                 <Navigation size={13} />Request rebooking to {fmtLt(next)} LT
               </button>
             )}
-            {w.kind !== 'task-reschedule' && (
+            {w.kind === 'missing-documents' && (
+              <>
+                <DocFollowUpButton warning={w} />
+                <button className="btn-secondary btn-sm" onClick={() => { navigate('port-call-detail', w.portCallId, 'overview'); setTimeout(() => document.getElementById('documents')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120); }}><ClipboardList size={13} />View documents</button>
+              </>
+            )}
+            {(w.kind === 'transit-risk' || w.kind === 'cost-impact') && (
               <button className="btn-secondary btn-sm" onClick={() => navigate('port-call-detail', w.portCallId, 'updates')}><Mail size={13} />Draft owner update</button>
             )}
             {w.status === 'Open' && (
               <button className="btn-ghost btn-sm" onClick={() => dispatch({ type: 'SET_WARNING_STATUS', warningId: w.id, status: 'Acknowledged', at: nowIso() })}><Check size={13} />Acknowledge</button>
             )}
-            {w.kind !== 'transit-risk' && (
+            {(w.kind === 'cost-impact' || w.kind === 'task-reschedule') && (
               <button className="btn-ghost btn-sm" onClick={() => dispatch({ type: 'SET_WARNING_STATUS', warningId: w.id, status: 'Resolved', at: nowIso() })}>Mark resolved</button>
             )}
           </div>

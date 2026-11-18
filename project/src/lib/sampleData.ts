@@ -5,11 +5,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import type {
   ActivityEvent, Company, DemoEmail, DemoState, HistoricalCall, PDA,
-  PortCall, Staff, Task, Vessel,
+  PortCall, Staff, Task, Vessel, Warning,
 } from '@/types';
 import { draftPdaLines } from '@/services/pdaEngine';
+import { checkDocuments, documentWarning, requiredDocuments } from '@/services/documentRules';
 
-export const STATE_VERSION = 3;
+export const STATE_VERSION = 4;
 export const DEMO_VESSEL_ID = 'vsl-nile';
 export const DEMO_OWNER_ID = 'own-thalassa';
 export const SEED_TIME = '2026-11-18T06:00:00.000Z';
@@ -280,6 +281,17 @@ const ACTIVITY: ActivityEvent[] = [
   { id: 'act-s1', timestamp: '2026-11-14T08:00:00.000Z', userId: 'system', user: 'System', action: 'Sample data loaded', category: 'system', entityLabel: 'Demo', details: 'Fictional sample data set loaded (6 port calls, 7 vessels, 3 past calls).' },
 ];
 
+// Pre-arrival documents per seed call (fictional). MV Lotus Horizon is the one
+// still missing documents inside the 24 h window at the sample clock.
+const SEED_DOCS: Record<string, { received: boolean | string[]; by: string; at: string }> = {
+  'pc-101': { received: true, by: 'Tarek Nabil', at: '2026-11-16T09:00:00.000Z' },
+  'pc-102': { received: true, by: 'Layla Haddad', at: '2026-11-16T07:30:00.000Z' },
+  'pc-103': { received: ['Crew list', 'Ship security declaration (ISPS)'], by: 'Tarek Nabil', at: '2026-11-17T10:15:00.000Z' },
+  'pc-104': { received: true, by: 'Youssef Adel', at: '2026-11-16T18:00:00.000Z' },
+  'pc-105': { received: ['Crew list', 'Ship security declaration (ISPS)'], by: 'Layla Haddad', at: '2026-11-18T05:00:00.000Z' },
+  'pc-106': { received: true, by: 'Mona Saleh', at: '2026-11-16T11:00:00.000Z' },
+};
+
 function seedPda(pcId: string, status: PDA['status']): PDA {
   const pc = PORT_CALLS.find(p => p.id === pcId)!;
   const vessel = VESSELS.find(v => v.id === pc.vesselId)!;
@@ -294,13 +306,26 @@ function seedPda(pcId: string, status: PDA['status']): PDA {
 
 export function buildInitialState(): DemoState {
   const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
+  const portCalls = clone(PORT_CALLS).map(pc => {
+    const d = SEED_DOCS[pc.id];
+    return d ? { ...pc, documents: requiredDocuments(pc.id, d.received, d.by, d.at) } : pc;
+  });
+  const docWarnings: Warning[] = [];
+  const docEvents: ActivityEvent[] = [];
+  portCalls.forEach(pc => {
+    const c = checkDocuments(pc);
+    if (!c?.triggered) return;
+    const w = documentWarning(pc, c);
+    docWarnings.push({ ...w, id: `wrn-docs-${pc.id}`, triggeredAt: SEED_TIME, status: 'Open' });
+    docEvents.push({ id: `act-docs-${pc.id}`, timestamp: SEED_TIME, userId: 'system', user: 'System', action: 'Warning raised', category: 'warning', portCallId: pc.id, entityLabel: pc.vesselName, details: `${w.title}. Rule: ${w.rule}.` });
+  });
   return {
     version: STATE_VERSION,
     currentUserId: 'st-mona',
     staff: clone(STAFF),
     companies: clone(COMPANIES),
     vessels: clone(VESSELS),
-    portCalls: clone(PORT_CALLS),
+    portCalls,
     emails: clone(EMAILS),
     tasks: clone(TASKS),
     pdas: {
@@ -312,8 +337,8 @@ export function buildInitialState(): DemoState {
     },
     fdas: {},
     historical: clone(HISTORICAL),
-    warnings: [],
+    warnings: docWarnings,
     clientUpdates: [],
-    activity: clone(ACTIVITY),
+    activity: [...clone(ACTIVITY).filter(a => a.timestamp > SEED_TIME), ...docEvents, ...clone(ACTIVITY).filter(a => a.timestamp <= SEED_TIME)],
   };
 }

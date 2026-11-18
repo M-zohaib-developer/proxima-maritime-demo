@@ -19,7 +19,7 @@ export type Desk = 'Operations' | 'D/A' | 'Suez' | 'Husbandry' | 'Logistics';
 export type ServiceKey = 'full-agency' | 'suez-transit' | 'husbandry' | 'bunkering' | 'crew-change';
 export type ActivityCategory =
   | 'port-call' | 'schedule' | 'pda' | 'task' | 'warning'
-  | 'client-update' | 'email' | 'fda' | 'transit' | 'system';
+  | 'client-update' | 'email' | 'fda' | 'transit' | 'document' | 'system';
 
 export interface Staff {
   id: string;
@@ -67,6 +67,14 @@ export interface SuezTransit {
   originalConvoy?: string;
 }
 
+export interface PortDocument {
+  id: string;
+  name: string;
+  status: 'Missing' | 'Received';
+  receivedAt?: string;
+  receivedBy?: string;
+}
+
 export interface Schedule {
   eta: string;
   etb: string;
@@ -91,6 +99,8 @@ export interface PortCall extends Schedule {
   baseline: Schedule;        // schedule as nominated — used for change detection & client updates
   delayReason?: string;
   suez?: SuezTransit;
+  /** required pre-arrival documents (sample) */
+  documents?: PortDocument[];
   nextStep: string;
   createdFrom: 'email' | 'seed' | 'manual';
   createdAt: string;
@@ -215,7 +225,7 @@ export interface Warning {
   id: string;
   portCallId: string;
   vesselName: string;
-  kind: 'transit-risk' | 'cost-impact' | 'task-reschedule';
+  kind: 'transit-risk' | 'cost-impact' | 'task-reschedule' | 'missing-documents';
   severity: WarningSeverity;
   title: string;
   reason: string;
@@ -226,6 +236,8 @@ export interface Warning {
   triggeredAt: string;
   status: 'Open' | 'Acknowledged' | 'Resolved';
   resolution?: string;
+  /** follow-up task created from this warning (missing documents) */
+  followUpTaskId?: string;
 }
 
 export interface ClientUpdateSnapshot {

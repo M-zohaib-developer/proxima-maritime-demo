@@ -3,6 +3,7 @@
 import { buildInitialState } from '@/lib/sampleData';
 import { editLine, pdaTotal } from '@/services/pdaEngine';
 import { checkTransit, type ScheduleAssessment } from '@/services/scheduleRules';
+import { checkDocuments, documentWarning } from '@/services/documentRules';
 import { addHours, fmtHoursDelta, fmtLt } from '@/lib/time';
 import { num, usd } from '@/lib/format';
 import type {
@@ -29,7 +30,9 @@ export type Action =
   | { type: 'SEND_UPDATE'; id: string; at: string }
   | { type: 'DISCARD_UPDATE'; id: string; at: string }
   | { type: 'LOAD_FDA'; fda: FDA; at: string }
-  | { type: 'RECONCILE_FDA'; portCallId: string; at: string };
+  | { type: 'RECONCILE_FDA'; portCallId: string; at: string }
+  | { type: 'MARK_DOCUMENT_RECEIVED'; portCallId: string; documentId: string; at: string }
+  | { type: 'CREATE_DOC_FOLLOWUP'; warningId: string; task: Task; at: string };
 
 let seq = 0;
 export function uid(prefix: string): string {
@@ -48,6 +51,39 @@ function log(s: DemoState, at: string, e: Omit<ActivityEvent, 'id' | 'timestamp'
 
 function patchCall(s: DemoState, id: string, patch: Partial<PortCall>): PortCall[] {
   return s.portCalls.map(pc => (pc.id === id ? { ...pc, ...patch } : pc));
+}
+
+/**
+ * Re-evaluate R-DOCS-01 for one port call: raise, update or clear its
+ * missing-documents warning. Automatic changes are logged as "System".
+ */
+export function syncDocumentWarning(s: DemoState, pcId: string, at: string): DemoState {
+  const pc = s.portCalls.find(p => p.id === pcId);
+  if (!pc) return s;
+  const check = checkDocuments(pc);
+  const existing = s.warnings.find(w => w.portCallId === pcId && w.kind === 'missing-documents' && w.status !== 'Resolved');
+  const sys = (e: Omit<ActivityEvent, 'id' | 'timestamp' | 'userId' | 'user'>): ActivityEvent => ({ id: uid('act'), timestamp: at, userId: 'system', user: 'System', ...e });
+
+  if (check?.triggered) {
+    const next = documentWarning(pc, check);
+    if (existing) {
+      if (existing.title === next.title && existing.severity === next.severity && existing.reason === next.reason) return s;
+      const ev = sys({ action: 'Warning updated', category: 'warning', portCallId: pc.id, entityLabel: pc.vesselName, details: `${next.title}. Rule: ${next.rule}.`,
+        changes: [{ field: 'Missing documents', from: existing.facts.find(f => f.label === 'Missing')?.value ?? '—', to: check.missing.map(d => d.name).join(', ') }] });
+      return { ...s, warnings: s.warnings.map(w => (w.id === existing.id ? { ...w, ...next } : w)), activity: [ev, ...s.activity] };
+    }
+    const w: Warning = { ...next, id: uid('wrn'), triggeredAt: at, status: 'Open' };
+    const ev = sys({ action: 'Warning raised', category: 'warning', portCallId: pc.id, entityLabel: pc.vesselName, details: `${w.title}. Rule: ${w.rule}.` });
+    return { ...s, warnings: [w, ...s.warnings], activity: [ev, ...s.activity] };
+  }
+
+  if (existing) {
+    const resolution = check && check.missing.length === 0 ? 'All required documents received' : 'ETA moved outside the 24 h document window';
+    const ev = sys({ action: 'Warning resolved', category: 'warning', portCallId: pc.id, entityLabel: pc.vesselName, details: `${existing.title} — ${resolution}.`,
+      changes: [{ field: 'Status', from: existing.status, to: 'Resolved' }] });
+    return { ...s, warnings: s.warnings.map(w => (w.id === existing.id ? { ...w, status: 'Resolved', resolution } : w)), activity: [ev, ...s.activity] };
+  }
+  return s;
 }
 
 // ── Reducer ───────────────────────────────────────────────────────────────────
@@ -76,13 +112,13 @@ export function reducer(s: DemoState, a: Action): DemoState {
           ...(pc.suez ? [{ field: 'Suez convoy requested', from: '—', to: `${fmtLt(pc.suez.convoy)} LT` }] : []),
         ],
       });
-      return {
+      return syncDocumentWarning({
         ...s,
         vessels: a.vessel && !s.vessels.some(v => v.id === a.vessel!.id) ? [...s.vessels, a.vessel] : s.vessels,
         portCalls: [...s.portCalls, pc],
         emails: s.emails.map(e => (e.id === a.emailId ? { ...e, status: 'Processed', processedAt: a.at, processedBy: currentUserOf(s).name, linkedPortCallId: pc.id } : e)),
         activity: [ev, ...s.activity],
-      };
+      }, pc.id, a.at);
     }
 
     case 'SET_PDA': {
@@ -207,7 +243,7 @@ export function reducer(s: DemoState, a: Action): DemoState {
           details: `${x.title} moved with ETB.`, changes: [{ field: 'Due', from: `${fmtLt(x.from)} LT`, to: `${fmtLt(x.to)} LT` }],
         })),
       ];
-      return {
+      return syncDocumentWarning({
         ...s,
         portCalls: patchCall(s, pc.id, {
           ...a.schedule,
@@ -218,7 +254,7 @@ export function reducer(s: DemoState, a: Action): DemoState {
         tasks: s.tasks.map(t => (shiftMap.has(t.id) ? { ...t, dueAt: shiftMap.get(t.id)! } : t)),
         warnings: [...newWarnings, ...supersededWarnings],
         activity: [...events.reverse(), ...s.activity],
-      };
+      }, pc.id, a.at);
     }
 
     case 'REBOOK_TRANSIT': {
@@ -323,6 +359,41 @@ export function reducer(s: DemoState, a: Action): DemoState {
         details: 'PDA vs FDA differences reviewed. Unexplained items flagged for invoice query before the FDA goes to the owner.',
       });
       return { ...s, fdas: { ...s.fdas, [pc.id]: { ...fda, reconciledAt: a.at, reconciledBy: currentUserOf(s).name } }, activity: [ev, ...s.activity] };
+    }
+
+    case 'MARK_DOCUMENT_RECEIVED': {
+      const pc = s.portCalls.find(p => p.id === a.portCallId);
+      const doc = pc?.documents?.find(d => d.id === a.documentId);
+      if (!pc || !doc || doc.status === 'Received') return s;
+      const user = currentUserOf(s);
+      const remaining = pc.documents!.filter(d => d.status === 'Missing').length - 1;
+      const ev = log(s, a.at, {
+        action: 'Document received', category: 'document', portCallId: pc.id, entityLabel: pc.vesselName,
+        details: `${doc.name} received. ${remaining === 0 ? 'All required pre-arrival documents are in.' : `${remaining} still missing.`}`,
+        changes: [{ field: doc.name, from: 'Missing', to: 'Received' }],
+      });
+      const next: DemoState = {
+        ...s,
+        portCalls: patchCall(s, pc.id, { documents: pc.documents!.map(d => (d.id === doc.id ? { ...d, status: 'Received', receivedAt: a.at, receivedBy: user.name } : d)) }),
+        activity: [ev, ...s.activity],
+      };
+      return syncDocumentWarning(next, pc.id, a.at);
+    }
+
+    case 'CREATE_DOC_FOLLOWUP': {
+      const w = s.warnings.find(x => x.id === a.warningId);
+      if (!w || w.kind !== 'missing-documents' || w.status === 'Resolved' || w.followUpTaskId) return s;
+      const assignee = s.staff.find(x => x.id === a.task.assigneeId)?.name ?? '—';
+      const ev = log(s, a.at, {
+        action: 'Task created', category: 'task', portCallId: w.portCallId, entityLabel: w.vesselName,
+        details: `Follow-up for missing documents: ${a.task.title} — assigned to ${assignee}, due ${fmtLt(a.task.dueAt)} LT.`,
+      });
+      return {
+        ...s,
+        tasks: [...s.tasks, a.task],
+        warnings: s.warnings.map(x => (x.id === w.id ? { ...x, followUpTaskId: a.task.id } : x)),
+        activity: [ev, ...s.activity],
+      };
     }
 
     default:

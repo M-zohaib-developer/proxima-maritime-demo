@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from 'react';
-import { Activity, AlertTriangle, Bell, Calendar, CheckSquare, FileText, Mail, Navigation, Search, Settings2, Ship, Wallet, X } from 'lucide-react';
+import { Activity, AlertTriangle, Bell, Calendar, CheckSquare, ClipboardList, FileText, Mail, Navigation, Search, Settings2, Ship, Wallet, X } from 'lucide-react';
 import { useDemoStore } from '@/lib/demoStore';
 import { Avatar, EmptyState, PageHeader } from '@/components/ui';
 import { fmtTimestamp } from '@/lib/time';
@@ -15,6 +15,7 @@ const CAT: Record<ActivityCategory, { label: string; Icon: typeof Ship }> = {
   email: { label: 'Email', Icon: Mail },
   fda: { label: 'FDA', Icon: Wallet },
   transit: { label: 'Transit', Icon: Navigation },
+  document: { label: 'Document', Icon: ClipboardList },
   system: { label: 'System', Icon: Settings2 },
 };
 

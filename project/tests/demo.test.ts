@@ -186,7 +186,7 @@ test('18 h berthing delay: transit risk + exact cost impact + task shift', async
   assert.equal(pc2.etb, '2026-11-21T12:00:00');
   assert.equal(pc2.suez?.status, 'At Risk');
   assert.equal(s.tasks.find(t => t.id === 't1')!.dueAt, '2026-11-21T18:00:00');
-  assert.equal(s.warnings.filter(w => w.status === 'Open').length, 3);
+  assert.equal(s.warnings.filter(w => w.portCallId === pcId && w.status === 'Open').length, 3);
 
   // a change with no effect raises nothing
   const none = assessScheduleChange(pc, v, { ...pc }, [], 'n/a');
@@ -306,4 +306,87 @@ test('historical comparisons: totals and unexplained flags', () => {
   const tow = c.rows.find(r => r.code === 'towage-out')!;
   assert.equal(tow.status, 'explained');
   assert.equal(tow.pct, 50);
+});
+
+// ── Missing pre-arrival documents (R-DOCS-01) ───────────────────────────────
+import { checkDocuments, SAMPLE_CLOCK_LT } from '@/services/documentRules';
+
+test('documents: seed raises one warning for MV Lotus Horizon only', () => {
+  const s = buildInitialState();
+  const docWarnings = s.warnings.filter(w => w.kind === 'missing-documents');
+  assert.equal(docWarnings.length, 1);
+  const w = docWarnings[0];
+  assert.equal(w.portCallId, 'pc-103');
+  assert.equal(w.severity, 'warning');
+  assert.equal(w.title, '2 pre-arrival documents overdue — passed 6 h ago');
+  assert.doesNotMatch(w.title, /ETA/, 'title is about the deadline, not the ETA');
+  assert.match(w.reason, /Document deadline: 18 Nov 06:00 LT \(ETA − 24 h\) — passed 6 h ago/);
+  assert.match(w.reason, /vessel's ETA is 19 Nov 06:00 LT — arrives in 18 h/);
+  assert.equal(w.facts.find(f => f.label === 'Document deadline')!.value, '18 Nov 06:00 LT · passed 6 h ago');
+  assert.equal(w.facts.find(f => f.label === 'Vessel ETA')!.value, '19 Nov 06:00 LT · arrives in 18 h');
+  const lotus = checkDocuments(s.portCalls.find(p => p.id === 'pc-103')!)!;
+  assert.equal(lotus.hoursToDeadline, -6);
+  assert.equal(lotus.hoursToEta, 18);
+  assert.equal(w.facts.find(f => f.label === 'Missing')!.value, 'Cargo manifest, Maritime declaration of health');
+  // Qamar Voyager has missing docs but ETA is 74 h away → no warning
+  const qamar = checkDocuments(s.portCalls.find(p => p.id === 'pc-105')!)!;
+  assert.equal(qamar.missing.length, 2);
+  assert.equal(qamar.hoursToEta, 74);
+  assert.equal(qamar.triggered, false);
+  assert.ok(s.activity.some(a => a.action === 'Warning raised' && a.portCallId === 'pc-103' && a.user === 'System'));
+});
+
+test('documents: rule boundary is exactly ETA − 24 h, critical under 12 h', () => {
+  const s = buildInitialState();
+  const pc = { ...s.portCalls.find(p => p.id === 'pc-105')! };
+  assert.equal(checkDocuments({ ...pc, eta: addHours(SAMPLE_CLOCK_LT, 24) })!.triggered, true);
+  assert.equal(checkDocuments({ ...pc, eta: addHours(SAMPLE_CLOCK_LT, 24.5) })!.triggered, false);
+  assert.equal(checkDocuments({ ...pc, eta: addHours(SAMPLE_CLOCK_LT, 11) })!.severity, 'critical');
+  const all = { ...pc, eta: addHours(SAMPLE_CLOCK_LT, 2), documents: pc.documents!.map(d => ({ ...d, status: 'Received' as const })) };
+  assert.equal(checkDocuments(all)!.triggered, false);
+});
+
+test('documents: receiving updates then clears the warning; follow-up task created once; all logged', () => {
+  let s = buildInitialState();
+  const w = s.warnings.find(x => x.kind === 'missing-documents')!;
+  const task: Task = { id: 'fu1', portCallId: 'pc-103', vesselName: 'MV Lotus Horizon', category: 'documents', title: 'Chase missing documents', description: '', assigneeId: 'st-tarek', dueAt: '2026-11-18T14:00:00', priority: 'High', status: 'Open', createdFrom: 'manual' };
+  s = reducer(s, { type: 'CREATE_DOC_FOLLOWUP', warningId: w.id, task, at: AT });
+  assert.equal(s.warnings.find(x => x.id === w.id)!.followUpTaskId, 'fu1');
+  assert.ok(s.tasks.some(t => t.id === 'fu1'));
+  // second follow-up is refused
+  const again = reducer(s, { type: 'CREATE_DOC_FOLLOWUP', warningId: w.id, task: { ...task, id: 'fu2' }, at: AT });
+  assert.equal(again, s);
+
+  s = reducer(s, { type: 'MARK_DOCUMENT_RECEIVED', portCallId: 'pc-103', documentId: 'pc-103-doc-2', at: AT });
+  let open = s.warnings.find(x => x.id === w.id)!;
+  assert.equal(open.status, 'Open');
+  assert.equal(open.title, '1 pre-arrival document overdue — passed 6 h ago');
+  assert.equal(open.followUpTaskId, 'fu1');          // update keeps the link
+  assert.equal(s.activity[0].action, 'Warning updated');
+  assert.equal(s.activity[1].action, 'Document received');
+
+  // marking the same document again is a no-op
+  assert.equal(reducer(s, { type: 'MARK_DOCUMENT_RECEIVED', portCallId: 'pc-103', documentId: 'pc-103-doc-2', at: AT }), s);
+
+  s = reducer(s, { type: 'MARK_DOCUMENT_RECEIVED', portCallId: 'pc-103', documentId: 'pc-103-doc-3', at: AT });
+  open = s.warnings.find(x => x.id === w.id)!;
+  assert.equal(open.status, 'Resolved');
+  assert.equal(open.resolution, 'All required documents received');
+  assert.deepEqual(s.activity.slice(0, 2).map(a => a.action), ['Warning resolved', 'Document received']);
+  assert.equal(s.activity[1].user, 'Mona Saleh');
+  assert.equal(s.activity[0].user, 'System');
+  assert.equal(s.warnings.filter(x => x.kind === 'missing-documents' && x.status !== 'Resolved').length, 0);
+});
+
+test('documents: Nile Trader gets required docs on creation but no warning (ETA 50 h away)', async () => {
+  const { s, pcId } = await withNileTrader();
+  const pc = s.portCalls.find(p => p.id === pcId)!;
+  assert.equal(pc.documents!.length, 4);
+  assert.ok(pc.documents!.every(d => d.status === 'Missing'));
+  const c = checkDocuments(pc)!;
+  assert.equal(c.deadline, '2026-11-19T14:00:00');
+  assert.equal(c.hoursToDeadline, 26);
+  assert.equal(c.hoursToEta, 50);
+  assert.equal(c.triggered, false);
+  assert.equal(s.warnings.filter(w => w.portCallId === pcId).length, 0);
 });

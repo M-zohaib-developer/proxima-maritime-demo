@@ -9,6 +9,7 @@ import WarningCard from '@/components/WarningCard';
 import TaskList, { NewTaskButton } from '@/components/TaskList';
 import PdaEditor from '@/components/PdaEditor';
 import ClientUpdateComposer from '@/components/ClientUpdateComposer';
+import DocumentsCard from '@/components/DocumentsCard';
 import { checkTransit } from '@/services/scheduleRules';
 import { fmtLt, fmtTimestamp } from '@/lib/time';
 import { num, usd } from '@/lib/format';
@@ -82,6 +83,7 @@ export default function PortCallDetail() {
               {active.filter(w => w.severity !== 'info').length > 0 && (
                 <div className="space-y-3">{active.filter(w => w.severity !== 'info').map(w => <WarningCard key={w.id} w={w} />)}</div>
               )}
+              <DocumentsCard pc={pc} />
               {pc.suez && (
                 <Card title={<span className="flex items-center gap-2"><Navigation size={15} className="text-ocean-500" />Suez Canal transit</span>} actions={<TransitStatusBadge status={pc.suez.status} />} bodyClass="px-5 py-2">
                   <dl>

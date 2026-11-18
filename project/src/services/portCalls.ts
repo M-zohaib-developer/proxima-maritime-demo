@@ -4,6 +4,7 @@ import type { NominationDraft } from '@/services/ai/types';
 import { addHours, hoursBetween, isValidLt } from '@/lib/time';
 import { convoyFor } from '@/services/scheduleRules';
 import { SUEZ_TABLE } from '@/lib/tariffs';
+import { requiredDocuments } from '@/services/documentRules';
 
 export const PORT_PREFIX: Record<PortName, string> = { Alexandria: 'ALX', Damietta: 'DAM', 'Port Said': 'PSD', Dubai: 'DXB' };
 /** illustrative passage from port to the Suez convoy waiting area */
@@ -75,7 +76,8 @@ export function buildPortCallFromNomination(
     chartererId: match.chartererId,
     port: d.port as PortName, purpose: d.purpose.trim(), cargo: d.cargo.trim() || undefined, cargoQty: d.cargoQty.trim() || undefined,
     services: d.services, status: 'Nominated', ...schedule, baseline: { ...schedule },
-    suez, nextStep: 'Draft PDA for owner approval; confirm berth line-up.',
+    suez, documents: requiredDocuments(`pc-${d.imo}-${PORT_PREFIX[d.port as PortName].toLowerCase()}`),
+    nextStep: 'Draft PDA for owner approval; confirm berth line-up.',
     createdFrom: 'email', createdAt: at,
   };
   return { portCall, vessel: existing ? undefined : vessel };

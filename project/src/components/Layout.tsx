@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Bell, Check, ChevronDown, ChevronRight, Menu, X } from 'lucide-react';
 import { useDemoStore, type PageKey } from '@/lib/demoStore';
 import { activeWarnings, unackWarnings } from '@/lib/selectors';
@@ -6,6 +6,8 @@ import { fmtTimestamp } from '@/lib/time';
 import Sidebar from '@/components/Sidebar';
 import { Avatar, SampleTag } from '@/components/ui';
 import { SeverityBadge } from '@/components/StatusBadge';
+
+const SIDEBAR_KEY = 'proxima-sidebar-collapsed';
 
 export const PAGE_LABELS: Record<PageKey, string> = {
   'overview': 'Overview',
@@ -117,6 +119,23 @@ function UserMenu() {
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { route, navigate, state } = useDemoStore();
   const [drawer, setDrawer] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem(SIDEBAR_KEY) === '1'; } catch { return false; }
+  });
+  const toggleSidebar = useCallback(() => setCollapsed(c => {
+    try { localStorage.setItem(SIDEBAR_KEY, c ? '0' : '1'); } catch { /* per-viewer preference only */ }
+    return !c;
+  }), []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b' && !(e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable="true"]'))) {
+        e.preventDefault();
+        toggleSidebar();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [toggleSidebar]);
   const main = useRef<HTMLElement>(null);
   const pc = route.page === 'port-call-detail' ? state.portCalls.find(p => p.id === route.id) : undefined;
   const crit = unackWarnings(state).filter(w => w.severity === 'critical').length;
@@ -125,7 +144,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-cloud">
-      <div className="hidden lg:flex"><Sidebar /></div>
+      <div className="hidden lg:flex"><Sidebar collapsed={collapsed} onToggle={toggleSidebar} /></div>
 
       {drawer && (
         <div className="lg:hidden fixed inset-0 z-50 flex">
